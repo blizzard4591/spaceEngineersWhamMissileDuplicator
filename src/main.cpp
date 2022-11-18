@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
     }
     QByteArray const data = file.readAll();
     file.close();
-    auto const blueprintData = BlueprintData::fromXml(data);
+    auto const blueprintData = BlueprintData::fromXml(data, options);
     if (!blueprintData) {
         return -1;
     } else if (choice != blueprintData->getDisplayName()) {
@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
     std::cout << "We will create " << copyCount << " cop" << ((copyCount == 1) ? "y" : "ies") << ", starting at " << firstIndex << "." << std::endl;
 
     for (qsizetype i = 0; i < copyCount; ++i) {
-        QByteArray const copyData = BlueprintData::toXMLWithNewId(data, *blueprintData, firstIndex);
+        QByteArray const copyData = BlueprintData::toXMLWithNewId(data, *blueprintData, firstIndex, options);
         if (copyData.isNull() || copyData.isEmpty()) {
             std::cerr << "Failed to produce a viable copy, quitting..." << std::endl;
             return -1;

@@ -1,14 +1,18 @@
 #include "BlueprintData.h"
 
 #include <QFile>
-#include <QRegularExpression>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
 #include <iostream>
 #include <stack>
 
-BlueprintData::BlueprintData(QString const& gridName, QString const& displayName, QString const& groupName, QStringList const& itemNames, int id) : m_gridName(gridName), m_displayName(displayName), m_groupName(groupName), m_itemNames(itemNames), m_id(id) {
+#include "Options.h"
+
+QRegularExpression const BlueprintData::expressionCustomDataMissileNumber = QRegularExpression(R"(\nMissile number=(\d+)\n)", QRegularExpression::MultilineOption);
+QRegularExpression const BlueprintData::expressionCustomDataMissileNameTag = QRegularExpression(R"(\nMissile name tag=([^\n]+)\n)", QRegularExpression::MultilineOption);
+
+BlueprintData::BlueprintData(QString const& gridName, QString const& displayName, QString const& groupName, QString const& nameTag, QStringList const& itemNames, int id) : m_gridName(gridName), m_displayName(displayName), m_groupName(groupName), m_nameTag(nameTag), m_itemNames(itemNames), m_id(id) {
 	//
 }
 
@@ -24,6 +28,10 @@ QString const& BlueprintData::getGroupName() const {
     return m_groupName;
 }
 
+QString const& BlueprintData::getNameTag() const {
+    return m_nameTag;
+}
+
 QStringList const& BlueprintData::getItemNames() const {
 	return m_itemNames;
 }
@@ -32,7 +40,7 @@ int BlueprintData::getId() const {
     return m_id;
 }
 
-std::optional<BlueprintData> BlueprintData::fromXml(QByteArray const& data) {
+std::optional<BlueprintData> BlueprintData::fromXml(QByteArray const& data, Options const& options) {
     QXmlStreamReader reader(data);
 
     std::stack<QString> stack;
@@ -182,7 +190,6 @@ std::optional<BlueprintData> BlueprintData::fromXml(QByteArray const& data) {
     }
     int const numberGroupName = matchGroupName.captured(1).toInt();
 
-    QRegularExpression expressionCustomDataMissileNumber(R"(\nMissile number=(\d+)\n)", QRegularExpression::MultilineOption);
     auto matchCustomDataMissileNumber = expressionCustomDataMissileNumber.match(customData);
     if (!matchCustomDataMissileNumber.isValid() || !matchCustomDataMissileNumber.hasMatch()) {
         std::cerr << "Failed to match the missile number in the WHAM custom data!" << std::endl;
@@ -191,6 +198,20 @@ std::optional<BlueprintData> BlueprintData::fromXml(QByteArray const& data) {
     }
     int const numberMissileCustomData = matchCustomDataMissileNumber.captured(1).toInt();
 
+    auto matchCustomDataMissileNameTag = expressionCustomDataMissileNameTag.match(customData);
+    if (!matchCustomDataMissileNameTag.isValid() || !matchCustomDataMissileNameTag.hasMatch()) {
+        std::cerr << "Failed to match the missile name tag in the WHAM custom data!" << std::endl;
+        std::cerr << "Custom Data: " << customData.toStdString() << std::endl;
+        return std::nullopt;
+    }
+    QString const nameTag = matchCustomDataMissileNameTag.captured(1);
+
+    QString const reducedGroupName = cutDigitsFromEnd(groupName).trimmed();
+    if (nameTag != reducedGroupName) {
+        std::cerr << "The missile name tag in the WHAM custom data and the actual group name do not match: '" << nameTag.toStdString() << "' vs. '" << reducedGroupName.toStdString() << "'" << std::endl;
+        return std::nullopt;
+    }
+
     if ((numberGridName != numberDisplayName) || (numberDisplayName != numberGroupName) || (numberGridName != numberMissileCustomData)) {
         std::cerr << "Numbering on Grid Name, Display Name, Group Name and WHAM custom data does NOT match: " << numberGridName << " vs. " << numberDisplayName << " vs. " << numberGroupName << " vs. " << numberMissileCustomData << "!" << std::endl;
         return std::nullopt;
@@ -198,7 +219,7 @@ std::optional<BlueprintData> BlueprintData::fromXml(QByteArray const& data) {
 
     std::cout << "Info: Found GridName='" << idSubType.toStdString() << "', DisplayName='" << displayName.toStdString() << "', GroupName='" << groupName.toStdString() << "' and " << itemNames.size() << " items, which all have the group name prefix." << std::endl;
 
-    return BlueprintData(idSubType, displayName, groupName, itemNames, numberGroupName);
+    return BlueprintData(idSubType, displayName, groupName, nameTag, itemNames, numberGroupName);
 }
 
 QString BlueprintData::cutDigitsFromEnd(QString s) {
@@ -213,7 +234,7 @@ QString BlueprintData::cutDigitsFromEnd(QString s) {
     return s;
 }
 
-QByteArray BlueprintData::toXMLWithNewId(QByteArray const& data, BlueprintData const& blueprintData, qsizetype newId) {
+QByteArray BlueprintData::toXMLWithNewId(QByteArray const& data, BlueprintData const& blueprintData, qsizetype newId, Options const& options) {
     // Replacement Data:
     QString const idSubType = cutDigitsFromEnd(blueprintData.getGridName()).append(QString::number(newId));
     QString const displayName = cutDigitsFromEnd(blueprintData.getDisplayName()).append(QString::number(newId));
@@ -226,8 +247,6 @@ QByteArray BlueprintData::toXMLWithNewId(QByteArray const& data, BlueprintData c
     QXmlStreamWriter writer(&result);
     writer.setAutoFormatting(true);
     writer.setAutoFormattingIndent(2);
-
-    QRegularExpression const expressionCustomDataMissileNumber(R"(^Missile number=(\d+)$)", QRegularExpression::MultilineOption);
 
     std::stack<QString> stack;
     while (!reader.atEnd()) {
@@ -317,7 +336,6 @@ QByteArray BlueprintData::toXMLWithNewId(QByteArray const& data, BlueprintData c
                         return QByteArray();
                     }
                     int const numberMissileCustomData = matchCustomDataMissileNumber.captured(1).toInt();
-                    std::cout << "Old missile number = " << numberMissileCustomData << std::endl;
 
                     characters = characters.replace(expressionCustomDataMissileNumber, QString("Missile number=%1").arg(newId));
                 }
