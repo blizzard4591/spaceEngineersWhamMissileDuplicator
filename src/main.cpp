@@ -1,3 +1,4 @@
+#include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -9,6 +10,7 @@
 #include <string>
 
 #include "BlueprintData.h"
+#include "Options.h"
 
 QString readInputFromConsoleWithDefault(std::string const& text, QString const& defaultValue) {
     std::cout << text << " [" << defaultValue.toStdString() << "]: ";
@@ -64,17 +66,6 @@ bool readNumericInputOrQuit(std::string const& text, qsizetype& choice, qsizetyp
     
 }
 
-bool isValidBlueprintLocation(QDir dir) {
-    // pick a folder and check if it contains bp.spc
-    auto const list = dir.entryList(QDir::Filter::Dirs | QDir::Filter::NoDotAndDotDot);
-    if (list.size() < 1) {
-        return false;
-    } else if (!dir.cd(list.at(0))) {
-        return false;
-    }
-    return QFile::exists(dir.absoluteFilePath(QStringLiteral("bp.sbc")));
-}
-
 QString getDefaultLocalBlueprintFolder() {
     QString const baseDir = QStandardPaths::locate(QStandardPaths::AppDataLocation, "Blueprints", QStandardPaths::LocateOption::LocateDirectory);
     if (baseDir.isEmpty()) {
@@ -102,22 +93,30 @@ QStringList scanBlueprints(QString const& path) {
 }
 
 int main(int argc, char* argv[]) {
-    QCoreApplication a(argc, argv);
-    a.setApplicationName("SpaceEngineers"); // To allow easy access to AppData/Roaming/SpaceEngineers
+    QCoreApplication app(argc, argv);
+    QCoreApplication::setApplicationName("SpaceEngineers"); // To allow easy access to AppData/Roaming/SpaceEngineers
+    QCoreApplication::setApplicationVersion("1.0.0");
     
-    // 1. Select location for blueprints
-    QString blueprintLocation;
-    QString const defaultPath = getDefaultLocalBlueprintFolder();
-    while (true) {
-        blueprintLocation = readInputFromConsoleWithDefault("Please select a blueprint location", defaultPath);
-        if ((blueprintLocation == QStringLiteral("q")) || (blueprintLocation == QStringLiteral("quit"))) {
-            std::cout << "Quitting as requested..." << std::endl;
-            return -1;
-        } else if (isValidBlueprintLocation(QDir(blueprintLocation))) {
-            break;
-        }
+    
 
-        std::cerr << "The selected location '" << blueprintLocation.toStdString() << "' is not valid. It should contain a set of folders, each containing a file called 'bp.spc'." << std::endl;
+    // Process the actual command line arguments given by the user
+    Options const options = Options::parseOptions(app);
+
+    // 1. Select location for blueprints
+    QString blueprintLocation = options.userBlueprintLocation;
+    if (!options.haveBlueprintLocation) {
+        QString const defaultPath = getDefaultLocalBlueprintFolder();
+        while (true) {
+            blueprintLocation = readInputFromConsoleWithDefault("Please select a blueprint location", defaultPath);
+            if ((blueprintLocation == QStringLiteral("q")) || (blueprintLocation == QStringLiteral("quit"))) {
+                std::cout << "Quitting as requested..." << std::endl;
+                return -1;
+            } else if (BlueprintData::isValidBlueprintLocation(QDir(blueprintLocation))) {
+                break;
+            }
+
+            std::cerr << "The selected location '" << blueprintLocation.toStdString() << "' is not valid. It should contain a set of folders, each containing a file called 'bp.spc'." << std::endl;
+        }
     }
 
     // 2. Present a list of Blueprints
@@ -126,19 +125,30 @@ int main(int argc, char* argv[]) {
         std::cerr << "The selected location '" << blueprintLocation.toStdString() << "' does not contain any Blueprints! It should contain a set of folders, each containing a file called 'bp.spc'." << std::endl;
         return -1;
     }
-    std::cout << "Available Blueprints:" << std::endl;
-    for (qsizetype i = 0; i < list.size(); ++i) {
-        std::cout << std::setw(3) << (i + 1) << ": " << list.at(i).toStdString() << std::endl;
-    }
 
     qsizetype choiceIndex = -1;
-    if (!readNumericInputOrQuit("", choiceIndex, 1, list.size())) {
-        std::cout << "Quitting as requested..." << std::endl;
-        return -1;
+    if (!options.haveBlueprintName) {
+        std::cout << "Available Blueprints:" << std::endl;
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            std::cout << std::setw(3) << (i + 1) << ": " << list.at(i).toStdString() << std::endl;
+        }
+
+        
+        if (!readNumericInputOrQuit("", choiceIndex, 1, list.size())) {
+            std::cout << "Quitting as requested..." << std::endl;
+            return -1;
+        }
+
+        // Correct for the offset
+        choiceIndex -= 1;
+    } else {
+        choiceIndex = list.indexOf(options.userBlueprintName);
+        if (choiceIndex == -1) {
+            std::cerr << "Your chosen Blueprint '" << options.userBlueprintName.toStdString() << "' does not exist in the selected folder." << std::endl;
+            return -1;
+        }
     }
 
-    // Correct for the offset
-    choiceIndex -= 1;
     QString const choice = list.at(choiceIndex);
     std::cout << "You selected: " << choice.toStdString() << std::endl;
 
@@ -163,16 +173,20 @@ int main(int argc, char* argv[]) {
     }
 
     // 4. Ask how many copies and duplicate them
-    qsizetype firstIndex = -1;
-    if (!readNumericInputOrQuit("Choose the starting ID of your copies. ", firstIndex, 1, 9999)) {
-        std::cout << "Quitting as requested..." << std::endl;
-        return -1;
+    qsizetype firstIndex = options.userFirstIndex;
+    if (!options.haveFirstIndex) {
+        if (!readNumericInputOrQuit("Choose the starting ID of your copies. ", firstIndex, 1, 9999)) {
+            std::cout << "Quitting as requested..." << std::endl;
+            return -1;
+        }
     }
-    qsizetype copyCount = -1;
-    if (!readNumericInputOrQuit("Choose how many copies you would like. ", copyCount, 1, 9999)) {
-        std::cout << "Quitting as requested..." << std::endl;
-        return -1;
-    }
+    qsizetype copyCount = options.userNumCopies;
+    if (!options.haveNumCopies) {
+        if (!readNumericInputOrQuit("Choose how many copies you would like. ", copyCount, 1, 9999)) {
+            std::cout << "Quitting as requested..." << std::endl;
+            return -1;
+        }
+    }    
     std::cout << "We will create " << copyCount << " cop" << ((copyCount == 1) ? "y" : "ies") << ", starting at " << firstIndex << "." << std::endl;
 
     for (qsizetype i = 0; i < copyCount; ++i) {
@@ -192,8 +206,13 @@ int main(int argc, char* argv[]) {
 
         QString const copyBpName = copyDir.absoluteFilePath(QStringLiteral("bp.sbc"));
         if (QFile::exists(copyBpName)) {
-            QString const removeReply = readInputFromConsoleWithDefault("Are you sure you want to replace all contents of the existing Blueprint '" + copyName.toStdString() + "'? (y or yes to confirm)", QStringLiteral("no"));
-            if ((removeReply == QStringLiteral("y")) || (removeReply == QStringLiteral("yes"))) {
+            bool mayOverride = options.force;
+            if (!mayOverride) {
+                QString const removeReply = readInputFromConsoleWithDefault("Are you sure you want to replace all contents of the existing Blueprint '" + copyName.toStdString() + "'? (y or yes to confirm)", QStringLiteral("no"));
+                mayOverride = ((removeReply == QStringLiteral("y")) || (removeReply == QStringLiteral("yes")));
+            }
+            
+            if (mayOverride) {
                 QFile::remove(copyBpName);
                 QFile::remove(copyDir.absoluteFilePath(QStringLiteral("bp.sbcB5")));
                 QFile::remove(copyDir.absoluteFilePath(QStringLiteral("thumb.png")));

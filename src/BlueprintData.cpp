@@ -1,5 +1,6 @@
 #include "BlueprintData.h"
 
+#include <QFile>
 #include <QRegularExpression>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
@@ -344,4 +345,15 @@ QByteArray BlueprintData::toXMLWithNewId(QByteArray const& data, BlueprintData c
     result = fix.toUtf8();
 
     return result;
+}
+
+bool BlueprintData::isValidBlueprintLocation(QDir dir) {
+    // pick a folder and check if it contains bp.spc
+    auto const list = dir.entryList(QDir::Filter::Dirs | QDir::Filter::NoDotAndDotDot);
+    if (list.size() < 1) {
+        return false;
+    } else if (!dir.cd(list.at(0))) {
+        return false;
+    }
+    return QFile::exists(dir.absoluteFilePath(QStringLiteral("bp.sbc")));
 }

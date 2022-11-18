@@ -2,6 +2,7 @@
 #define SPACEENGINEERS_BLUEPRINTDUPLICATOR_BLUEPRINTDATA_H_
 
 #include <QByteArray>
+#include <QDir>
 #include <QString>
 #include <QStringList>
 
@@ -21,6 +22,7 @@ public:
 
 	static QByteArray toXMLWithNewId(QByteArray const& data, BlueprintData const& blueprintData, qsizetype newId);
 	static QString cutDigitsFromEnd(QString s);
+	static bool isValidBlueprintLocation(QDir dir);
 private:
 	QString const m_gridName;
 	QString const m_displayName;
